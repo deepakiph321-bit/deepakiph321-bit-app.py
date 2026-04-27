@@ -4,111 +4,79 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# Page Config
-st.set_page_config(page_title="Video Audit Tool Pro", layout="wide")
+st.set_page_config(page_title="VK & Audit Pro Extractor", layout="wide")
 
 def format_duration_custom(seconds):
-    """Seconds ko HH-MM-SS mein badalne ke liye"""
-    if not seconds or seconds == 'N/A':
-        return "00-00-00"
-    try:
-        # Convert seconds to HH-MM-SS with dashes
-        return time.strftime('%H-%M-%S', time.gmtime(float(seconds)))
-    except:
-        return "00-00-00"
+    if not seconds or seconds == 'N/A': return "00-00-00"
+    try: return time.strftime('%H-%M-%S', time.gmtime(float(seconds)))
+    except: return "00-00-00"
 
 def format_date_custom(info):
-    """Platform se date lekar DD-MM-YYYY HH-MM-SS mein badalne ke liye"""
-    # yt-dlp usually provides 'upload_date' as YYYYMMDD
     raw_date = info.get('upload_date')
-    if not raw_date or raw_date == 'N/A':
-        return "00-00-0000 00-00-00"
+    if not raw_date: return "00-00-0000 00-00-00"
     try:
         date_obj = datetime.strptime(raw_date, '%Y%m%d')
         return date_obj.strftime('%d-%m-%Y 00-00-00')
-    except:
-        return f"{raw_date} 00-00-00"
+    except: return f"{raw_date} 00-00-00"
 
-st.title("🛡️ Anti-Piracy Video Data Extractor")
-st.write("Specialized for: **VKVideo, OK.ru, Dailymotion, Bilibili, and Social Media.**")
+st.title("🛡️ Advanced Video Auditor (VK/OK/Bilibili)")
 
-video_url = st.text_input("Paste Video URL:", placeholder="https://vkvideo.ru/video-...")
+video_url = st.text_input("Enter Video URL:", placeholder="https://vkvideo.ru/video-...")
 
-if st.button("Extract & Format Data"):
+if st.button("Extract Data"):
     if video_url:
-        with st.spinner('Fetching metadata...'):
+        # VKVideo URL correction (Sometimes vkvideo.ru needs to be treated as vk.com)
+        if "vkvideo.ru" in video_url:
+            video_url = video_url.replace("vkvideo.ru", "vk.com")
+            
+        with st.spinner('Forcing extraction through platform firewalls...'):
             try:
-                # Headers to reduce blocking
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
-                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                    'referer': 'https://www.google.com/',
+                    'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'add_header': ['Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'],
                 }
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(video_url, download=False)
                     
-                    # --- ROBUST EXTRACTION LOGIC ---
+                    # --- VK SPECIFIC MAPPING ---
+                    # Views: VK views are often in 'view_count' or 'repost_count'
+                    v_count = info.get('view_count') or info.get('playback_count')
                     
-                    # 1. Views (Trying all possible keys for VK/OK.ru)
-                    views = info.get('view_count') or info.get('playback_count') or 'N/A'
+                    # Subscribers: VK groups use 'follower_count'
+                    subs = info.get('channel_follower_count') or info.get('uploader_count') or info.get('subscriber_count')
                     
-                    # 2. Subscribers / Followers
-                    subs = (info.get('channel_follower_count') or 
-                            info.get('subscriber_count') or 
-                            info.get('follower_count') or 'N/A')
+                    # Channel URL & User Name
+                    u_url = info.get('uploader_url') or info.get('channel_url')
+                    u_id = info.get('uploader_id') or info.get('uploader')
                     
-                    # 3. Channel URL
-                    c_url = info.get('uploader_url') or info.get('channel_url') or 'N/A'
-                    
-                    # 4. Formatted Fields
-                    duration_final = format_duration_custom(info.get('duration'))
-                    date_final = format_date_custom(info)
+                    # Fallback for Channel URL if missing but ID exists
+                    if not u_url and u_id:
+                        if "vk.com" in video_url: u_url = f"https://vk.com/{u_id}"
 
-                    # --- FINAL DATA STRUCTURE ---
-                    res_data = {
-                        "Field": [
-                            "Video Title", 
-                            "Views", 
-                            "Duration (HH-MM-SS)", 
-                            "Likes", 
-                            "Comment Count", 
-                            "Upload Date (DD-MM-YYYY HH-MM-SS)", 
-                            "Channel Name", 
-                            "Channel URL", 
-                            "Subscribers", 
-                            "User Name"
-                        ],
+                    res = {
+                        "Field": ["Video Title", "Views", "Duration (HH-MM-SS)", "Likes", "Comments", "Upload Date", "Channel Name", "Channel URL", "Subscribers", "User Name"],
                         "Value": [
                             info.get('title', 'N/A'),
-                            views,
-                            duration_final,
+                            f"{v_count:,}" if isinstance(v_count, int) else v_count or 'N/A',
+                            format_duration_custom(info.get('duration')),
                             info.get('like_count', 'N/A'),
                             info.get('comment_count', 'N/A'),
-                            date_final,
+                            format_date_custom(info),
                             info.get('uploader', 'N/A'),
-                            c_url,
-                            subs,
-                            info.get('uploader_id', 'N/A')
+                            u_url or 'N/A',
+                            f"{subs:,}" if isinstance(subs, int) else subs or 'N/A',
+                            u_id or 'N/A'
                         ]
                     }
 
-                    df = pd.DataFrame(res_data)
-                    st.success("Data Extracted Successfully!")
+                    df = pd.DataFrame(res)
+                    st.success("Extraction attempt finished!")
                     st.table(df)
-                    
-                    # Download CSV
-                    csv = df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Download Audit CSV",
-                        data=csv,
-                        file_name=f"audit_report_{datetime.now().strftime('%d_%m_%Y')}.csv",
-                        mime='text/csv',
-                    )
+                    st.download_button("📥 Download CSV", df.to_csv(index=False).encode('utf-8'), "audit.csv")
 
             except Exception as e:
-                st.error(f"Error: {str(e)}")
-                st.info("Instagram/Bilibili Note: Agar 'URL Blocked' aa raha hai, toh Streamlit server block ho chuka hai. Local PC setup is recommended.")
-    else:
-        st.warning("Please paste a URL first.")
+                st.error(f"Cloud Blocked Error: {str(e)}")
+                st.warning("VK/Instagram/Bilibili aksar Cloud IPs ko block karte hain. Niche wala 'Local Setup' try karein.")
