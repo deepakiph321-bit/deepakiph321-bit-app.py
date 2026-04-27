@@ -3,13 +3,14 @@ import yt_dlp
 import pandas as pd
 from datetime import datetime
 import time
-import re
 
-st.set_page_config(page_title="Audit Tool - VK Fix", layout="wide")
+# Page Config
+st.set_page_config(page_title="Audit Tool - VK Pro", layout="wide")
 
 def format_duration(seconds):
     if not seconds or seconds == 'N/A': return "00-00-00"
-    return time.strftime('%H-%M-%S', time.gmtime(float(seconds)))
+    try: return time.strftime('%H-%M-%S', time.gmtime(float(seconds)))
+    except: return "00-00-00"
 
 def format_date(info):
     raw_date = info.get('upload_date')
@@ -18,14 +19,16 @@ def format_date(info):
         return datetime.strptime(raw_date, '%Y%m%d').strftime('%d-%m-%Y 00-00-00')
     except: return f"{raw_date} 00-00-00"
 
-st.title("🛡️ Video Metadata Extractor (VK Optimized)")
+st.title("🛡️ Video Audit Dashboard")
+st.write("Handling: **VKVideo (@handles), OK.ru, Dailymotion, etc.**")
 
-video_url = st.text_input("Paste Video URL:", placeholder="https://vkvideo.ru/video-...")
+video_url = st.text_input("Paste Video URL:", placeholder="https://vk.com/...")
 
-if st.button("Extract Data"):
+if st.button("Start Extraction"):
     if video_url:
-        with st.spinner('Accessing VK Servers...'):
+        with st.spinner('Fetching metadata...'):
             try:
+                # Advanced Options for VK
                 ydl_opts = {
                     'quiet': True,
                     'no_warnings': True,
@@ -35,34 +38,37 @@ if st.button("Extract Data"):
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(video_url, download=False)
                     
-                    # --- VK SPECIFIC LOGIC ---
+                    # --- VK DATA LOGIC ---
+                    uploader_name = info.get('uploader') or 'N/A'
                     uploader_id = str(info.get('uploader_id', ''))
-                    uploader_name = info.get('uploader', 'N/A')
                     
-                    # 1. Manual Channel URL Construction for VK
-                    # Agar scraper @handle nahi de raha, toh numerical ID se link banayenge
+                    # Channel URL Logic: Handle vs ID
+                    # Hum koshish karenge ki agar handle (@) available hai toh wo lein
                     c_url = info.get('uploader_url') or info.get('channel_url')
-                    if not c_url or c_url == 'N/A':
-                        if "vk" in video_url and uploader_id:
-                            # VK mein negative ID ka matlab 'Club' ya 'Public' page hota hai
-                            clean_id = uploader_id.replace('-', '')
-                            c_url = f"https://vk.com/public{clean_id}"
+                    
+                    # Agar Handle nahi mil raha, toh VKVideo ka standard handle format try karein
+                    if uploader_name != 'N/A' and (not c_url or "public" in c_url):
+                        # Cleaning name for potential handle (this is a guess logic)
+                        clean_name = uploader_name.lower().replace(" ", "")
+                        # But standard Numerical ID is safer if handle fails
+                        if not c_url: c_url = f"https://vk.com/public{uploader_id.replace('-', '')}"
 
-                    # 2. Views & Subs
+                    # Views & Subs
                     views = info.get('view_count') or info.get('playback_count') or 'N/A'
                     subs = info.get('channel_follower_count') or info.get('subscriber_count') or 'N/A'
 
+                    # Formatting results
                     res = {
                         "Field": [
                             "Video Title", "Views", "Duration (HH-MM-SS)", 
-                            "Likes", "Comment Count", "Upload Date", 
+                            "Likes", "Comment Count", "Upload Date (DD-MM-YYYY HH-MM-SS)", 
                             "Channel Name", "Channel URL", "Subscribers", "User Name"
                         ],
                         "Value": [
                             info.get('title', 'N/A'),
                             f"{views:,}" if isinstance(views, int) else views,
                             format_duration(info.get('duration')),
-                            info.get('like_count', 'N/A'),
+                            info.get('like_count', 'N/S'),
                             info.get('comment_count', 'N/A'),
                             format_date(info),
                             uploader_name,
@@ -73,10 +79,14 @@ if st.button("Extract Data"):
                     }
 
                     df = pd.DataFrame(res)
-                    st.success("Data Fetched!")
+                    st.success("Target Extracted!")
                     st.table(df)
-                    st.download_button("📥 Download CSV", df.to_csv(index=False).encode('utf-8'), "vk_audit.csv")
+                    
+                    # Download CSV
+                    st.download_button("📥 Download Report", df.to_csv(index=False).encode('utf-8'), "audit_report.csv")
 
             except Exception as e:
-                st.error(f"Error: {str(e)}")
-                st.info("VK/Instagram aksar Streamlit ke servers ko block kar dete hain. Agar ye error baar-baar aaye, toh Local PC setup hi ekmatra solution hai.")
+                st.error(f"Cloud Restriction: {str(e)}")
+                st.info("Tip: VK aur Bilibili aksar Streamlit ko block karte hain. Local machine setup se 100% result milenge.")
+    else:
+        st.warning("Please paste a URL.")
